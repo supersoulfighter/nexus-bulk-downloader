@@ -1,5 +1,5 @@
 # One mod file name per line. Lines starting with '#' and blank lines are ignored.
-# The mod id is the number furthest from the end that is purely numeric and at
-# least 4 digits long (dash-separated). The extension is ignored when matching.
-Unofficial Skyrim Special Edition Patch-12604-4-2-9b-1656260165.7z
-SkyUI-12604-5-2-SE-1518453379.7z
+# The mod id is the largest dash-separated, purely-numeric segment that is not
+# the trailing upload timestamp. The file extension is ignored when matching.
+SkyUI-12604-6-9-1776525988
+Immersive Citizens - AI Overhaul-173-0-4

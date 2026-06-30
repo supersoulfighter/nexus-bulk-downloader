@@ -66,22 +66,31 @@ Provide a plain-text `files.txt`, one mod file name per line (see
 `files.example.txt`). Blank lines and lines starting with `#` are ignored.
 
 ```
-Unofficial Skyrim Special Edition Patch-12604-4-2-9b-1656260165.7z
-SkyUI-12604-5-2-SE-1518453379.7z
+SkyUI-12604-6-9-1776525988
+Immersive Citizens - AI Overhaul-173-0-4
 ```
 
 ### How the mod id is parsed
 
-Nexus download file names end with a series of dash-separated numbers. The mod
-id is the **number furthest from the end that is purely numeric and at least 4
-digits long**. Scanning segments from the end, shorter version numbers and
-non-numeric tokens are skipped, and the trailing timestamp (also numeric) is
-passed over in favour of the earlier qualifying number.
+Nexus download file names follow `<name>-<modid>-<version>-<timestamp>`. The mod
+id is the **largest purely-numeric, dash-separated segment that is not the
+trailing upload timestamp** (timestamps are 10-digit unix epochs, i.e. values
+`>= 1_000_000_000`, and are ignored).
 
-For example, in `SkyUI-12604-5-2-SE-1518453379.7z` the purely-numeric segments
-of at least 4 digits are `12604` and `1518453379` (the timestamp); the one
-furthest from the end is **12604** → mod id `12604`. The minimum digit count is
-configurable in code via `extract_mod_id(..., min_digits=...)`.
+This handles the tricky cases seen in real lists:
+
+- short version parts (`6`, `9`) and non-numeric tokens (`SE`, `9b`) are ignored;
+- 3-digit mod ids work (e.g. `Immersive Citizens - AI Overhaul-173-0-4` → `173`),
+  because the timestamp is excluded rather than "first/last N digits" being used;
+- names that themselves contain dash-separated version numbers resolve correctly,
+  e.g. `RaceMenu Anniversary Edition v0-4-20-0-19080-0-4-20-0-1776620918` →
+  largest non-timestamp number `19080`;
+- embedded version dots like `Footprints 1.6.1-3808-...` are preserved (the
+  extension stripper only removes a genuine short suffix such as `.7z`).
+
+Names with no number at all (e.g. `PandoraOutput`) cannot be resolved and are
+reported as unresolved. The timestamp threshold is configurable in code via
+`extract_mod_id(..., timestamp_min=...)`.
 
 ## Usage
 

@@ -1,26 +1,38 @@
 """Helpers for parsing Nexus mod file names.
 
-Nexus download file names end with a series of dash-separated numbers, e.g.::
+Nexus download file names follow ``<name>-<modid>-<version>-<timestamp>`` where
+``<version>`` is dotted-version-with-dashes and ``<timestamp>`` is the upload
+unix epoch, e.g.::
 
-    SkyUI-12604-5-2-SE-1518453379.7z
+    SkyUI-12604-6-9-1776525988
 
-The mod id is the qualifying number *furthest from the end*: scanning the
-dash-separated segments from the end, it is the last segment that is purely
-numeric and at least :data:`MOD_ID_MIN_DIGITS` digits long. Equivalently, it is
-the first (left-most) such segment. In the example above the segments that are
-purely numeric and >= 4 digits are ``12604`` and ``1518453379`` (the trailing
-timestamp); the one furthest from the end is ``12604`` -> mod id ``12604``.
-Shorter numbers (e.g. version parts ``5``/``2``) and non-numeric tokens (``SE``)
-are ignored.
+The mod id is recovered as the **largest purely-numeric, dash-separated segment
+that is not the trailing upload timestamp**. This is robust against:
+
+* short version parts (``6``, ``9``) and non-numeric tokens (``SE``, ``9b``),
+* the trailing timestamp (always >= :data:`TIMESTAMP_MIN`, i.e. a 10-digit
+  epoch, which is larger than any real mod id and is excluded), and
+* names that themselves contain dash-separated version numbers, e.g.
+  ``RaceMenu Anniversary Edition v0-4-20-0-19080-0-4-20-0-1776620918`` -> the
+  numbers are ``4,20,0,19080,0,4,20,0`` (timestamp removed) and the largest,
+  ``19080``, is the mod id.
+
+Note: a handful of names carry no number at all (e.g. ``PandoraOutput``); those
+raise :class:`ModIdParseError` and are reported as unresolved by the caller.
 """
 
 from __future__ import annotations
 
-import os
+import re
 
-# Mod ids are at least this many digits; shorter numbers (version parts) are
-# ignored when locating the mod id.
-MOD_ID_MIN_DIGITS = 4
+# Numbers >= this value are treated as upload timestamps (10-digit unix epochs)
+# rather than mod ids, and are ignored when locating the mod id.
+TIMESTAMP_MIN = 1_000_000_000
+
+# A trailing ".<ext>" is only treated as a file extension when it is a short
+# alphanumeric token with no dashes/spaces (e.g. ".7z", ".zip", ".1"). This
+# avoids mangling names that contain dots such as "Footprints 1.6.1-3808-...".
+_EXT_RE = re.compile(r"[A-Za-z0-9]{1,4}")
 
 
 class ModIdParseError(ValueError):
@@ -28,13 +40,16 @@ class ModIdParseError(ValueError):
 
 
 def strip_extension(file_name: str) -> str:
-    """Return *file_name* without its final extension.
+    """Return *file_name* without a genuine trailing file extension.
 
-    Handles common double extensions such as ``.tar.gz`` is intentionally not
-    special-cased; only the last suffix is removed, which matches how Nexus
-    archive names (``.zip``/``.7z``/``.rar``) behave.
+    Unlike :func:`os.path.splitext`, this does not strip everything after the
+    last dot; it only removes a short alphanumeric suffix, so embedded version
+    dots (``v13.0``, ``1.6.1``) are preserved.
     """
-    return os.path.splitext(file_name)[0]
+    head, dot, ext = file_name.rpartition(".")
+    if dot and head and _EXT_RE.fullmatch(ext):
+        return head
+    return file_name
 
 
 def match_key(file_name: str) -> str:
@@ -43,7 +58,7 @@ def match_key(file_name: str) -> str:
     Matching ignores the file extension and is case-insensitive, with
     surrounding whitespace removed.
     """
-    return strip_extension(file_name).strip().casefold()
+    return strip_extension(file_name.strip()).casefold()
 
 
 def numeric_segments(file_name: str) -> list[str]:
@@ -52,21 +67,20 @@ def numeric_segments(file_name: str) -> list[str]:
     return [part for part in base.split("-") if part.isdigit()]
 
 
-def extract_mod_id(file_name: str, *, min_digits: int = MOD_ID_MIN_DIGITS) -> int:
+def extract_mod_id(file_name: str, *, timestamp_min: int = TIMESTAMP_MIN) -> int:
     """Extract the Nexus mod id from a download *file_name*.
 
-    Scanning the dash-separated segments from the end, the mod id is the last
-    (i.e. left-most) segment that is purely numeric and at least ``min_digits``
-    digits long. Trailing timestamps are also purely numeric and long, so the
-    *furthest-from-the-end* qualifying segment is chosen rather than the nearest.
+    The mod id is the largest purely-numeric, dash-separated segment whose value
+    is below ``timestamp_min`` (so the trailing upload timestamp is ignored).
 
     Raises:
-        ModIdParseError: if no qualifying numeric segment is found.
+        ModIdParseError: if the name has no qualifying numeric segment.
     """
-    qualifying = [part for part in numeric_segments(file_name) if len(part) >= min_digits]
-    if not qualifying:
+    candidates = [int(part) for part in numeric_segments(file_name)]
+    non_timestamp = [value for value in candidates if value < timestamp_min]
+    if not non_timestamp:
         raise ModIdParseError(
-            f"Cannot extract mod id from {file_name!r}: no purely-numeric, "
-            f">= {min_digits}-digit dash-separated segment found."
+            f"Cannot extract mod id from {file_name!r}: no non-timestamp, "
+            "purely-numeric dash-separated segment found."
         )
-    return int(qualifying[0])
+    return max(non_timestamp)
