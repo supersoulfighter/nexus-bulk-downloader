@@ -7,7 +7,8 @@ import sys
 from pathlib import Path
 
 from rich.console import Console
-from rich.prompt import Confirm
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
+from rich.prompt import Prompt
 from rich.table import Table
 
 from . import __version__
@@ -95,6 +96,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _confirm_download() -> bool:
+    """Ask the user to explicitly type 'Y' to proceed (anything else aborts)."""
+    answer = Prompt.ask("Type 'Y' to confirm and start the download", default="")
+    return answer.strip().casefold() in {"y", "yes"}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -126,7 +133,23 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     client = NexusClient(config.api_key, timeout=config.timeout)
-    plan = build_plan(client, config.game_domain, requested)
+    with Progress(
+        TextColumn("[bold blue]Processing files"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("files processed"),
+        console=console,
+        transient=True,
+    ) as progress:
+        task_id = progress.add_task("resolve", total=len(requested))
+
+        def on_progress(done: int, total: int) -> None:
+            progress.update(task_id, completed=done, total=total)
+
+        plan = build_plan(
+            client, config.game_domain, requested, progress_callback=on_progress
+        )
+    console.print(f"Processed {len(requested)} of {len(requested)} files.")
     _render_plan(plan)
 
     if not plan.planned:
@@ -137,8 +160,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     console.print(f"\nDownloads will be saved to: [bold]{config.download_dir}[/bold]")
-    if not args.yes and not Confirm.ask("Proceed with download?", default=True):
-        console.print("Aborted by user.")
+    if not args.yes and not _confirm_download():
+        console.print("Aborted — confirmation not given.")
         return 0
 
     results = download_all(

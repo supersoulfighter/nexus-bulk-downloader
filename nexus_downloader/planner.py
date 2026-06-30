@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .api import ModFile, NexusApiError, NexusClient
 from .naming import ModIdParseError, extract_mod_id, match_key
+
+ProgressCallback = Callable[[int, int], None]
 
 
 @dataclass
@@ -46,21 +49,40 @@ def read_file_list(path: str | Path) -> list[str]:
     return names
 
 
-def build_plan(client: NexusClient, game_domain: str, requested_names: list[str]) -> DownloadPlan:
+def build_plan(
+    client: NexusClient,
+    game_domain: str,
+    requested_names: list[str],
+    *,
+    progress_callback: ProgressCallback | None = None,
+) -> DownloadPlan:
     """Resolve *requested_names* into a :class:`DownloadPlan`.
 
     Files belonging to the same mod are fetched once. Duplicate resolved files
     (same mod id + file id) are collapsed so each file is downloaded only once.
+
+    If *progress_callback* is given, it is invoked as ``callback(done, total)``
+    after each requested file is processed, so callers can show progress.
     """
     plan = DownloadPlan()
+    total = len(requested_names)
+    processed = 0
 
-    # Group requested names by mod id so we hit the API once per mod.
+    def advance() -> None:
+        nonlocal processed
+        processed += 1
+        if progress_callback is not None:
+            progress_callback(processed, total)
+
+    # Group requested names by mod id so we hit the API once per mod. Names whose
+    # mod id cannot be parsed are reported immediately.
     by_mod: dict[int, list[str]] = {}
     for name in requested_names:
         try:
             mod_id = extract_mod_id(name)
         except ModIdParseError as exc:
             plan.unresolved.append(UnresolvedRequest(name, str(exc)))
+            advance()
             continue
         by_mod.setdefault(mod_id, []).append(name)
 
@@ -74,6 +96,7 @@ def build_plan(client: NexusClient, game_domain: str, requested_names: list[str]
                 plan.unresolved.append(
                     UnresolvedRequest(name, f"Failed to list files for mod {mod_id}: {exc}")
                 )
+                advance()
             continue
 
         lookup: dict[str, ModFile] = {}
@@ -86,11 +109,14 @@ def build_plan(client: NexusClient, game_domain: str, requested_names: list[str]
                 plan.unresolved.append(
                     UnresolvedRequest(name, f"No matching file found in mod {mod_id}.")
                 )
+                advance()
                 continue
             dedupe_key = (mod_id, matched.file_id)
             if dedupe_key in seen_file_ids:
+                advance()
                 continue
             seen_file_ids.add(dedupe_key)
             plan.planned.append(PlannedDownload(name, mod_id, matched))
+            advance()
 
     return plan

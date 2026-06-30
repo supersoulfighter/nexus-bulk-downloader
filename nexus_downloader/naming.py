@@ -2,19 +2,25 @@
 
 Nexus download file names end with a series of dash-separated numbers, e.g.::
 
-    Unofficial Skyrim Special Edition Patch-266-4-2-9b-1656260165.7z
+    SkyUI-12604-5-2-SE-1518453379.7z
 
-The mod id is the *fourth number from the end* (counting only purely-numeric
-segments). In the example above the trailing numbers, read from the end, are
-``1656260165`` (1st), ``2`` (2nd), ``4`` (3rd), ``266`` (4th) -> mod id ``266``.
-The ``9b`` version segment is not purely numeric, so it is not counted.
+The mod id is the qualifying number *furthest from the end*: scanning the
+dash-separated segments from the end, it is the last segment that is purely
+numeric and at least :data:`MOD_ID_MIN_DIGITS` digits long. Equivalently, it is
+the first (left-most) such segment. In the example above the segments that are
+purely numeric and >= 4 digits are ``12604`` and ``1518453379`` (the trailing
+timestamp); the one furthest from the end is ``12604`` -> mod id ``12604``.
+Shorter numbers (e.g. version parts ``5``/``2``) and non-numeric tokens (``SE``)
+are ignored.
 """
 
 from __future__ import annotations
 
 import os
 
-MOD_ID_POSITION_FROM_END = 4
+# Mod ids are at least this many digits; shorter numbers (version parts) are
+# ignored when locating the mod id.
+MOD_ID_MIN_DIGITS = 4
 
 
 class ModIdParseError(ValueError):
@@ -40,25 +46,27 @@ def match_key(file_name: str) -> str:
     return strip_extension(file_name).strip().casefold()
 
 
-def numeric_segments(file_name: str) -> list[int]:
+def numeric_segments(file_name: str) -> list[str]:
     """Return the purely-numeric dash-separated segments of *file_name*."""
     base = strip_extension(file_name)
-    return [int(part) for part in base.split("-") if part.isdigit()]
+    return [part for part in base.split("-") if part.isdigit()]
 
 
-def extract_mod_id(file_name: str, *, position_from_end: int = MOD_ID_POSITION_FROM_END) -> int:
+def extract_mod_id(file_name: str, *, min_digits: int = MOD_ID_MIN_DIGITS) -> int:
     """Extract the Nexus mod id from a download *file_name*.
 
-    The mod id is the ``position_from_end``-th purely-numeric, dash-separated
-    segment counted from the end of the name (default: 4th).
+    Scanning the dash-separated segments from the end, the mod id is the last
+    (i.e. left-most) segment that is purely numeric and at least ``min_digits``
+    digits long. Trailing timestamps are also purely numeric and long, so the
+    *furthest-from-the-end* qualifying segment is chosen rather than the nearest.
 
     Raises:
-        ModIdParseError: if there are not enough numeric segments.
+        ModIdParseError: if no qualifying numeric segment is found.
     """
-    numbers = numeric_segments(file_name)
-    if len(numbers) < position_from_end:
+    qualifying = [part for part in numeric_segments(file_name) if len(part) >= min_digits]
+    if not qualifying:
         raise ModIdParseError(
-            f"Cannot extract mod id from {file_name!r}: found {len(numbers)} numeric "
-            f"segment(s), need at least {position_from_end}."
+            f"Cannot extract mod id from {file_name!r}: no purely-numeric, "
+            f">= {min_digits}-digit dash-separated segment found."
         )
-    return numbers[-position_from_end]
+    return int(qualifying[0])

@@ -28,34 +28,34 @@ def _mf(file_id, file_name, size_kb=10):
 
 def test_read_file_list_skips_blanks_and_comments(tmp_path):
     p = tmp_path / "files.txt"
-    p.write_text("# comment\n\nMod A-100-1-2-3.zip\n  Mod B-200-1-2-3.7z  \n")
-    assert read_file_list(p) == ["Mod A-100-1-2-3.zip", "Mod B-200-1-2-3.7z"]
+    p.write_text("# comment\n\nMod A-1234-1-2-3.zip\n  Mod B-5678-1-2-3.7z  \n")
+    assert read_file_list(p) == ["Mod A-1234-1-2-3.zip", "Mod B-5678-1-2-3.7z"]
 
 
 def test_build_plan_matches_ignoring_extension():
-    client = FakeClient({100: [_mf(1, "Mod A-100-1-2-3.7z")]})
-    plan = build_plan(client, "skyrim", ["Mod A-100-1-2-3.zip"])
+    client = FakeClient({1234: [_mf(1, "Mod A-1234-1-2-3.7z")]})
+    plan = build_plan(client, "skyrim", ["Mod A-1234-1-2-3.zip"])
     assert len(plan.planned) == 1
     assert plan.planned[0].mod_file.file_id == 1
     assert not plan.unresolved
 
 
 def test_build_plan_groups_api_calls_per_mod():
-    client = FakeClient({100: [_mf(1, "A-100-1-2-3.7z"), _mf(2, "B-100-1-2-3.7z")]})
-    plan = build_plan(client, "skyrim", ["A-100-1-2-3.7z", "B-100-1-2-3.7z"])
-    assert client.calls == [100]
+    client = FakeClient({1234: [_mf(1, "A-1234-1-2-3.7z"), _mf(2, "B-1234-1-2-3.7z")]})
+    plan = build_plan(client, "skyrim", ["A-1234-1-2-3.7z", "B-1234-1-2-3.7z"])
+    assert client.calls == [1234]
     assert len(plan.planned) == 2
 
 
 def test_build_plan_dedupes_same_file():
-    client = FakeClient({100: [_mf(1, "A-100-1-2-3.7z")]})
-    plan = build_plan(client, "skyrim", ["A-100-1-2-3.zip", "A-100-1-2-3.7z"])
+    client = FakeClient({1234: [_mf(1, "A-1234-1-2-3.7z")]})
+    plan = build_plan(client, "skyrim", ["A-1234-1-2-3.zip", "A-1234-1-2-3.7z"])
     assert len(plan.planned) == 1
 
 
 def test_build_plan_reports_unmatched():
-    client = FakeClient({100: [_mf(1, "A-100-1-2-3.7z")]})
-    plan = build_plan(client, "skyrim", ["Missing-100-1-2-3.zip"])
+    client = FakeClient({1234: [_mf(1, "A-1234-1-2-3.7z")]})
+    plan = build_plan(client, "skyrim", ["Missing-1234-1-2-3.zip"])
     assert not plan.planned
     assert len(plan.unresolved) == 1
 
@@ -69,8 +69,21 @@ def test_build_plan_handles_unparseable_name():
 
 
 def test_build_plan_continues_on_api_error():
-    client = FakeClient({}, errors={100: "boom"})
-    plan = build_plan(client, "skyrim", ["A-100-1-2-3.zip"])
+    client = FakeClient({}, errors={1234: "boom"})
+    plan = build_plan(client, "skyrim", ["A-1234-1-2-3.zip"])
     assert not plan.planned
     assert len(plan.unresolved) == 1
     assert "boom" in plan.unresolved[0].reason
+
+
+def test_build_plan_reports_progress():
+    client = FakeClient({1234: [_mf(1, "A-1234-1-2-3.7z")]})
+    seen = []
+    build_plan(
+        client,
+        "skyrim",
+        ["A-1234-1-2-3.zip", "badname.zip"],
+        progress_callback=lambda done, total: seen.append((done, total)),
+    )
+    assert seen[-1] == (2, 2)
+    assert [d for d, _ in seen] == [1, 2]

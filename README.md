@@ -66,17 +66,22 @@ Provide a plain-text `files.txt`, one mod file name per line (see
 `files.example.txt`). Blank lines and lines starting with `#` are ignored.
 
 ```
-Unofficial Skyrim Special Edition Patch-266-4-2-9b-1656260165.7z
+Unofficial Skyrim Special Edition Patch-12604-4-2-9b-1656260165.7z
 SkyUI-12604-5-2-SE-1518453379.7z
 ```
 
 ### How the mod id is parsed
 
 Nexus download file names end with a series of dash-separated numbers. The mod
-id is the **4th number from the end**, counting only purely-numeric segments.
-For example, in `...-266-4-2-9b-1656260165.7z` the numbers from the end are
-`1656260165` (1st), `2` (2nd), `4` (3rd), `266` (4th) → mod id **266**
-(`9b` is skipped because it is not purely numeric).
+id is the **number furthest from the end that is purely numeric and at least 4
+digits long**. Scanning segments from the end, shorter version numbers and
+non-numeric tokens are skipped, and the trailing timestamp (also numeric) is
+passed over in favour of the earlier qualifying number.
+
+For example, in `SkyUI-12604-5-2-SE-1518453379.7z` the purely-numeric segments
+of at least 4 digits are `12604` and `1518453379` (the timestamp); the one
+furthest from the end is **12604** → mod id `12604`. The minimum digit count is
+configurable in code via `extract_mod_id(..., min_digits=...)`.
 
 ## Usage
 
@@ -92,6 +97,11 @@ Useful flags:
 | `-j, --concurrency` | Override max simultaneous downloads.                     |
 | `--dry-run`         | Resolve and print the plan, then exit (no downloads).    |
 | `-y, --yes`         | Skip the confirmation prompt.                            |
+
+While the file list is resolved against the API, a progress bar shows
+`N of M files processed`. Before any download starts you must **type `Y`** (or
+`yes`) to confirm — pressing Enter or anything else aborts. Use `-y/--yes` to
+skip the prompt in scripts.
 
 The tool prints a summary of downloaded / skipped / failed files at the end and
 exits non-zero if any file failed.
