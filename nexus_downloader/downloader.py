@@ -39,14 +39,14 @@ class DownloadResult:
     path: Path | None = None
 
 
-def _is_complete(dest: Path, expected_size: int) -> bool:
-    """Return True if *dest* already exists and matches the expected size."""
-    if not dest.exists():
-        return False
-    if expected_size <= 0:
-        # Size unknown; treat any existing file as complete to avoid re-downloading.
-        return True
-    return dest.stat().st_size == expected_size
+def _already_present(dest: Path) -> bool:
+    """Return True if a file with this name already exists on disk.
+
+    Duplicate prevention is by file name only (the API's reported size is a
+    rounded KB value and never matches the exact byte count, so a size check
+    would wrongly re-download and overwrite existing files).
+    """
+    return dest.exists()
 
 
 def _download_one(
@@ -59,8 +59,8 @@ def _download_one(
 ) -> DownloadResult:
     dest = dest_dir / item.mod_file.file_name
 
-    if _is_complete(dest, item.mod_file.size_bytes):
-        return DownloadResult(item, DownloadStatus.SKIPPED, "already downloaded", dest)
+    if _already_present(dest):
+        return DownloadResult(item, DownloadStatus.SKIPPED, "already present", dest)
 
     try:
         links = client.get_download_links(game_domain, item.mod_id, item.mod_file.file_id)
