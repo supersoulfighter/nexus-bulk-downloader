@@ -134,8 +134,8 @@ def main(argv: list[str] | None = None) -> int:
 
     client = NexusClient(config.api_key, timeout=config.timeout)
     with Progress(
-        TextColumn("[bold blue]Processing files"),
-        BarColumn(),
+        TextColumn("Processing files"),
+        BarColumn(complete_style="green", finished_style="green"),
         MofNCompleteColumn(),
         TextColumn("files processed"),
         console=console,

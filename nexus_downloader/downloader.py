@@ -9,13 +9,15 @@ from enum import Enum
 from pathlib import Path
 
 import requests
+from rich.console import Group
+from rich.live import Live
 from rich.progress import (
     BarColumn,
     DownloadColumn,
+    MofNCompleteColumn,
     Progress,
     SpinnerColumn,
     TextColumn,
-    TimeRemainingColumn,
     TransferSpeedColumn,
 )
 
@@ -116,21 +118,26 @@ def download_all(
     dest_dir.mkdir(parents=True, exist_ok=True)
     results: list[DownloadResult] = []
 
-    progress = Progress(
+    overall_progress = Progress(
+        TextColumn("Overall"),
+        BarColumn(complete_style="green", finished_style="green"),
+        MofNCompleteColumn(),
+        TextColumn("files"),
+    )
+    file_progress = Progress(
         SpinnerColumn(),
-        TextColumn("[bold blue]{task.fields[filename]}", justify="left"),
-        BarColumn(),
+        TextColumn("{task.fields[filename]}", justify="left"),
+        BarColumn(complete_style="green", finished_style="green"),
         DownloadColumn(),
         TransferSpeedColumn(),
-        TimeRemainingColumn(),
-        transient=True,
     )
+    overall_task = overall_progress.add_task("overall", total=len(items))
 
-    with progress:
+    with Live(Group(overall_progress, file_progress), transient=True, refresh_per_second=10):
         with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
             futures = {
                 executor.submit(
-                    _download_one, client, game_domain, item, dest_dir, progress, timeout
+                    _download_one, client, game_domain, item, dest_dir, file_progress, timeout
                 ): item
                 for item in items
             }
@@ -142,5 +149,6 @@ def download_all(
                     results.append(
                         DownloadResult(item, DownloadStatus.FAILED, f"unexpected error: {exc}")
                     )
+                overall_progress.advance(overall_task)
 
     return results
