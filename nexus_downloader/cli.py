@@ -150,16 +150,33 @@ def main(argv: list[str] | None = None) -> int:
             client, config.game_domain, requested, progress_callback=on_progress
         )
     console.print(f"Processed {len(requested)} of {len(requested)} files.")
+
+    # Filter out files that are already present so the confirmation report only
+    # lists what will actually be downloaded.
+    dest_dir = config.download_dir
+    already_present = [
+        p for p in plan.planned if (dest_dir / p.mod_file.file_name).exists()
+    ]
+    plan.planned = [
+        p for p in plan.planned if not (dest_dir / p.mod_file.file_name).exists()
+    ]
+
     _render_plan(plan)
+    if already_present:
+        console.print(
+            f"[yellow]{len(already_present)} file(s) already present in "
+            f"{dest_dir} — will be skipped.[/yellow]"
+        )
 
     if not plan.planned:
+        console.print("[green]Nothing to download.[/green]")
         return 1 if plan.unresolved else 0
 
     if args.dry_run:
         console.print("[dim]--dry-run set; exiting without downloading.[/dim]")
         return 0
 
-    console.print(f"\nDownloads will be saved to: [bold]{config.download_dir}[/bold]")
+    console.print(f"\nDownloads will be saved to: [bold]{dest_dir}[/bold]")
     if not args.yes and not _confirm_download():
         console.print("Aborted — confirmation not given.")
         return 0
@@ -168,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         client,
         config.game_domain,
         plan.planned,
-        config.download_dir,
+        dest_dir,
         max_concurrent=config.max_concurrent,
         timeout=max(config.timeout, 300.0),
     )
@@ -177,9 +194,11 @@ def main(argv: list[str] | None = None) -> int:
     skipped = [r for r in results if r.status is DownloadStatus.SKIPPED]
     failed = [r for r in results if r.status is DownloadStatus.FAILED]
 
+    skipped_present = len(skipped) + len(already_present)
+
     console.print("\n[bold]Summary[/bold]")
     console.print(f"  [green]Downloaded:[/green] {len(downloaded)}")
-    console.print(f"  [yellow]Skipped (already present):[/yellow] {len(skipped)}")
+    console.print(f"  [yellow]Skipped (already present):[/yellow] {skipped_present}")
     console.print(f"  [red]Failed:[/red] {len(failed)}")
     for result in failed:
         console.print(f"    [red]![/red] {result.item.mod_file.file_name} — {result.detail}")
