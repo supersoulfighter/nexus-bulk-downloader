@@ -1,0 +1,4 @@
+# One mod file name per line. Lines starting with '#' and blank lines are ignored.
+# The mod id is the 4th number from the end (dash-separated). The extension is ignored when matching.
+Unofficial Skyrim Special Edition Patch-266-4-2-9b-1656260165.7z
+SkyUI-12604-5-2-SE-1518453379.7z
