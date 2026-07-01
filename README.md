@@ -106,6 +106,10 @@ Useful flags:
 | `-j, --concurrency` | Override max simultaneous downloads.                     |
 | `--dry-run`         | Resolve and print the plan, then exit (no downloads).    |
 | `-y, --yes`         | Skip the confirmation prompt.                            |
+| `--nxm`             | Queue files in a mod manager (Vortex) instead of downloading. |
+| `--nxm-action`      | `open` (default), `print`, or `file` — what to do with the links. |
+| `--nxm-out PATH`    | Output file for `--nxm-action file` (default `<output>/nxm_links.txt`). |
+| `--nxm-delay SECS`  | Delay between opening links in `open` mode (default `1.0`). |
 
 While the file list is resolved against the API, a progress bar shows
 `N of M files processed`. Before any download starts you must **type `Y`** (or
@@ -115,10 +119,36 @@ skip the prompt in scripts.
 The tool prints a summary of downloaded / skipped / failed files at the end and
 exits non-zero if any file failed.
 
+### Queue in Vortex instead of downloading (`--nxm`)
+
+With `--nxm`, the tool resolves each requested file to a mod id + file id and
+emits an `nxm://<game_domain>/mods/<mod_id>/files/<file_id>` link instead of
+downloading it. Vortex registers the `nxm://` protocol handler, so opening these
+links queues the downloads into Vortex's own download folder (and it handles the
+actual CDN URL itself).
+
+```bash
+nexus-bulk-download --nxm                       # open each link -> Vortex queues it
+nexus-bulk-download --nxm --nxm-action print    # just print the nxm:// links
+nexus-bulk-download --nxm --nxm-action file     # write links to nxm_links.txt
+```
+
+Notes:
+
+- Run this on the machine where **Vortex is installed and running**, with the
+  `nxm://` handler registered (Settings → Download → "Handle nxm links").
+- `open` mode fires the links through your OS handler (`os.startfile` on Windows,
+  `open` on macOS, `xdg-open` on Linux); `--nxm-delay` paces them so Vortex keeps
+  up.
+- Because Vortex uses its own download folder, the "already present on disk"
+  filter is not applied in `--nxm` mode (duplicate resolution within a run still
+  applies).
+
 ## Behavior notes
 
 - **Duplicate prevention**: each resolved file is downloaded only once, and a
-  file already present on disk with the expected size is skipped.
+  file already present on disk (matched by name) is skipped and not overwritten.
+  Already-present files are excluded from the pre-download confirmation report.
 - **Error tolerance**: a failure on one file (network error, missing match,
   API error) does not stop the rest of the batch.
 - **Mirrors**: if the API returns multiple CDN mirrors, they are tried in order.

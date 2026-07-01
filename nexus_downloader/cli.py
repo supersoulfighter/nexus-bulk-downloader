@@ -15,7 +15,8 @@ from . import __version__
 from .api import NexusClient
 from .config import Config, ConfigError
 from .downloader import DownloadStatus, download_all
-from .planner import DownloadPlan, build_plan, read_file_list
+from .nxm import NxmAction, NxmStatus, queue_in_mod_manager
+from .planner import DownloadPlan, PlannedDownload, build_plan, read_file_list
 
 console = Console()
 
@@ -92,6 +93,34 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Resolve and show the plan, then exit without downloading.",
     )
+    parser.add_argument(
+        "--nxm",
+        action="store_true",
+        help=(
+            "Instead of downloading, hand each file to a mod manager (e.g. Vortex) "
+            "as an nxm:// link so it downloads into its own folder."
+        ),
+    )
+    parser.add_argument(
+        "--nxm-action",
+        choices=[a.value for a in NxmAction],
+        default=NxmAction.OPEN.value,
+        help=(
+            "What to do with nxm:// links in --nxm mode: 'open' (launch the OS "
+            "handler/Vortex, default), 'print', or 'file'."
+        ),
+    )
+    parser.add_argument(
+        "--nxm-out",
+        default=None,
+        help="Output path for --nxm-action file (default: <output>/nxm_links.txt).",
+    )
+    parser.add_argument(
+        "--nxm-delay",
+        type=float,
+        default=1.0,
+        help="Seconds to wait between opening nxm:// links (default: 1.0).",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 
@@ -100,6 +129,39 @@ def _confirm_download() -> bool:
     """Ask the user to explicitly type 'Y' to proceed (anything else aborts)."""
     answer = Prompt.ask("Type 'Y' to confirm and start the download", default="")
     return answer.strip().casefold() in {"y", "yes"}
+
+
+def _run_nxm(
+    game_domain: str,
+    items: list[PlannedDownload],
+    args: argparse.Namespace,
+    dest_dir: Path,
+) -> int:
+    """Hand resolved downloads to a mod manager as nxm:// links."""
+    action = NxmAction(args.nxm_action)
+    out_path = None
+    if action is NxmAction.FILE:
+        out_path = Path(args.nxm_out) if args.nxm_out else dest_dir / "nxm_links.txt"
+
+    results = queue_in_mod_manager(
+        game_domain, items, action=action, out_path=out_path, delay=args.nxm_delay
+    )
+    queued = [r for r in results if r.status is NxmStatus.QUEUED]
+    failed = [r for r in results if r.status is NxmStatus.FAILED]
+
+    if action is NxmAction.PRINT:
+        for result in results:
+            console.print(result.uri)
+    elif action is NxmAction.FILE and out_path is not None:
+        console.print(f"Wrote {len(queued)} nxm:// link(s) to [bold]{out_path}[/bold]")
+
+    console.print("\n[bold]Summary[/bold]")
+    console.print(f"  [green]Queued:[/green] {len(queued)}")
+    console.print(f"  [red]Failed:[/red] {len(failed)}")
+    for result in failed:
+        console.print(f"    [red]![/red] {result.item.mod_file.file_name} — {result.detail}")
+
+    return 1 if failed else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -151,15 +213,19 @@ def main(argv: list[str] | None = None) -> int:
         )
     console.print(f"Processed {len(requested)} of {len(requested)} files.")
 
-    # Filter out files that are already present so the confirmation report only
-    # lists what will actually be downloaded.
     dest_dir = config.download_dir
-    already_present = [
-        p for p in plan.planned if (dest_dir / p.mod_file.file_name).exists()
-    ]
-    plan.planned = [
-        p for p in plan.planned if not (dest_dir / p.mod_file.file_name).exists()
-    ]
+
+    # In direct-download mode, filter out files already present on disk so the
+    # report only lists what will actually be downloaded. In --nxm mode the mod
+    # manager uses its own download folder, so this local filter is skipped.
+    already_present: list[PlannedDownload] = []
+    if not args.nxm:
+        already_present = [
+            p for p in plan.planned if (dest_dir / p.mod_file.file_name).exists()
+        ]
+        plan.planned = [
+            p for p in plan.planned if not (dest_dir / p.mod_file.file_name).exists()
+        ]
 
     _render_plan(plan)
     if already_present:
@@ -176,10 +242,20 @@ def main(argv: list[str] | None = None) -> int:
         console.print("[dim]--dry-run set; exiting without downloading.[/dim]")
         return 0
 
-    console.print(f"\nDownloads will be saved to: [bold]{dest_dir}[/bold]")
+    if args.nxm:
+        console.print(
+            f"\n[bold]{len(plan.planned)}[/bold] file(s) will be queued to your mod "
+            f"manager as nxm:// links (action: {args.nxm_action})."
+        )
+    else:
+        console.print(f"\nDownloads will be saved to: [bold]{dest_dir}[/bold]")
+
     if not args.yes and not _confirm_download():
         console.print("Aborted — confirmation not given.")
         return 0
+
+    if args.nxm:
+        return _run_nxm(config.game_domain, plan.planned, args, dest_dir)
 
     results = download_all(
         client,
