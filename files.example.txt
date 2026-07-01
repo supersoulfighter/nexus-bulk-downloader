@@ -1,0 +1,5 @@
+# One mod file name per line. Lines starting with '#' and blank lines are ignored.
+# The mod id is the largest dash-separated, purely-numeric segment that is not
+# the trailing upload timestamp. The file extension is ignored when matching.
+SkyUI-12604-6-9-1776525988
+Immersive Citizens - AI Overhaul-173-0-4

@@ -1,0 +1,7 @@
+{
+  "apikey": "YOUR_NEXUS_API_KEY",
+  "game_domain": "skyrimspecialedition",
+  "download_dir": "downloads",
+  "max_concurrent": 4,
+  "timeout": 30
+}
